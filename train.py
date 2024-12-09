@@ -34,7 +34,7 @@ class TurkishTTSDataset(Dataset):
                 parts = line.strip().split('|')
                 if len(parts) == 2:
                     audio_path, text = parts
-                                 
+                    
                     # Tam yolu oluştur
                     full_audio_path = os.path.join(self.data_path, audio_path)
                     
@@ -65,12 +65,13 @@ class TurkishTTSDataset(Dataset):
             waveform = torch.mean(waveform, dim=0, keepdim=True)
             
         # Örnekleme hızını kontrol et
-        if sr != self.config.sampling_rate:
-            waveform = torchaudio.transforms.Resample(sr, self.config.sampling_rate)(waveform)
+        if sr != self.config.sample_rate:  
+            waveform = torchaudio.transforms.Resample(sr, self.config.sample_rate)(waveform)
             
         # Ses uzunluğunu kontrol et
-        if waveform.size(1) > self.config.max_wav_length:
-            waveform = waveform[:, :self.config.max_wav_length]
+        max_length = int(self.config.max_seq_len * self.config.sample_rate / 1000)  
+        if waveform.size(1) > max_length:
+            waveform = waveform[:, :max_length]
             
         # Metni fonemlere dönüştür
         try:
@@ -81,13 +82,13 @@ class TurkishTTSDataset(Dataset):
             print(f"Hata: {str(e)}")
             # Hata durumunda boş bir örnek döndür
             return {
-                'waveform': torch.zeros(1, self.config.max_wav_length),
+                'waveform': torch.zeros(1, max_length),
                 'phonemes': torch.zeros(1, dtype=torch.long)
             }
             
         return {
-            'waveform': waveform.squeeze(0),  # [T]
-            'phonemes': phonemes  # [L]
+            'waveform': waveform.squeeze(0),  
+            'phonemes': phonemes  
         }
 
 def train(config, model, train_loader, optimizer, criterion, device, epoch):
