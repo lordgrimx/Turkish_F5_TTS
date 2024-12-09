@@ -11,7 +11,6 @@ from turkish_f5_tts.text import text_to_sequence
 import numpy as np
 from tqdm import tqdm
 import logging
-import wandb
 
 class TurkishTTSDataset(Dataset):
     def __init__(self, data_path, config):
@@ -86,14 +85,6 @@ def train(config, model, train_loader, optimizer, criterion, device, epoch):
         
         # Progress bar güncelle
         progress_bar.set_postfix({'loss': f'{current_loss:.4f}'})
-        
-        # Wandb'ye log gönder
-        if wandb.run is not None:
-            wandb.log({
-                'batch_loss': loss.item(),
-                'epoch_loss': current_loss,
-                'learning_rate': optimizer.param_groups[0]['lr']
-            })
     
     return total_loss / len(train_loader)
 
@@ -104,10 +95,6 @@ def main():
     # Logging ayarla
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
-    
-    # Wandb başlat
-    if os.environ.get('COLAB_GPU'):  # Google Colab'da çalışıyorsa
-        wandb.init(project="turkish-f5-tts", name="training_run")
     
     # Device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
