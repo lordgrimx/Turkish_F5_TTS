@@ -11,6 +11,7 @@ from turkish_f5_tts.text import text_to_sequence
 import numpy as np
 from tqdm import tqdm
 import logging
+import torchaudio
 
 class TurkishTTSDataset(Dataset):
     def __init__(self, data_path, config):
@@ -53,19 +54,40 @@ class TurkishTTSDataset(Dataset):
         return len(self.metadata)
         
     def __getitem__(self, idx):
+        """Veri setinden bir örnek döndür"""
         audio_path, text = self.metadata[idx]
         
-        # Metni fonem dizisine dönüştür
-        phonemes = text_to_sequence(text)
+        # Ses dosyasını yükle
+        waveform, sr = torchaudio.load(audio_path)
         
-        # Ses dosyasını yükle ve mel spektrogramını hesapla
-        wav = self.audio_processor.load_wav(audio_path)
-        mel = self.audio_processor.mel_spectrogram(wav)
-        
+        # Tek kanala dönüştür
+        if waveform.size(0) > 1:
+            waveform = torch.mean(waveform, dim=0, keepdim=True)
+            
+        # Örnekleme hızını kontrol et
+        if sr != self.config.sampling_rate:
+            waveform = torchaudio.transforms.Resample(sr, self.config.sampling_rate)(waveform)
+            
+        # Ses uzunluğunu kontrol et
+        if waveform.size(1) > self.config.max_wav_length:
+            waveform = waveform[:, :self.config.max_wav_length]
+            
+        # Metni fonemlere dönüştür
+        try:
+            phonemes = text_to_sequence(text)
+            phonemes = torch.LongTensor(phonemes)
+        except Exception as e:
+            print(f"Metin dönüştürme hatası: {text}")
+            print(f"Hata: {str(e)}")
+            # Hata durumunda boş bir örnek döndür
+            return {
+                'waveform': torch.zeros(1, self.config.max_wav_length),
+                'phonemes': torch.zeros(1, dtype=torch.long)
+            }
+            
         return {
-            'text': torch.LongTensor(phonemes),
-            'mel': mel,
-            'duration': torch.ones(len(phonemes))  # Placeholder for duration
+            'waveform': waveform.squeeze(0),  # [T]
+            'phonemes': phonemes  # [L]
         }
 
 def train(config, model, train_loader, optimizer, criterion, device, epoch):
@@ -78,15 +100,14 @@ def train(config, model, train_loader, optimizer, criterion, device, epoch):
         optimizer.zero_grad()
         
         # Batch verilerini device'a taşı
-        text = batch['text'].to(device)
-        mel = batch['mel'].to(device)
-        duration = batch['duration'].to(device)
+        waveform = batch['waveform'].to(device)
+        phonemes = batch['phonemes'].to(device)
         
         # Forward pass
-        output = model(text, duration_target=duration)
+        output = model(phonemes)
         
         # Loss hesapla
-        loss = criterion(output['mel_pred'], mel)
+        loss = criterion(output['mel_pred'], waveform)
         
         # Backward pass
         loss.backward()
