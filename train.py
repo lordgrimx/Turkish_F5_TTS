@@ -24,22 +24,22 @@ def pad_sequence(waveform, target_length):
         return torch.cat([waveform, padding], dim=-1)
 
 class TurkishTTSDataset(Dataset):
-    def __init__(self, data_path, config):
-        self.data_path = data_path
-        self.config = config
-        self.target_length = int(config.max_seq_len * config.sample_rate / 1000)  # ms to samples
+    def __init__(self, dataset_path, config=None):
+        self.dataset_path = os.path.abspath(dataset_path)
+        self.config = config if config else ModelConfig()
+        self.target_length = int(self.config.max_seq_len * self.config.sample_rate / 1000)  # ms to samples
         self.audio_processor = AudioProcessor()
         self.metadata = self.load_metadata()
         
         # Add mel-spectrogram transform
         self.mel_transform = torchaudio.transforms.MelSpectrogram(
-            sample_rate=config.sample_rate,
+            sample_rate=self.config.sample_rate,
             n_fft=1024,
             win_length=1024,
             hop_length=256,
-            n_mels=config.n_mel_channels,
-            f_min=config.mel_fmin,
-            f_max=config.mel_fmax
+            n_mels=self.config.n_mel_channels,
+            f_min=self.config.mel_fmin,
+            f_max=self.config.mel_fmax
         )
         
         # Duration ratio for initial duration targets
@@ -51,45 +51,41 @@ class TurkishTTSDataset(Dataset):
         return (mel - mel.mean()) / (mel.std() + 1e-8)
         
     def load_metadata(self):
-        """Metadata dosyasını yükle"""
-        metadata_path = os.path.join(self.data_path, 'metadata.csv')
-        logging.info(f"Metadata dosyası yükleniyor: {metadata_path}")
+        metadata_path = os.path.join(self.dataset_path, 'metadata.csv')
+        logging.info(f'Metadata dosyası yükleniyor: {metadata_path}')
         
-        metadata = []
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f'Metadata dosyası bulunamadı: {metadata_path}')
+        
+        valid_samples = []
         with open(metadata_path, 'r', encoding='utf-8') as f:
             for line in f:
-                if 'audio_path' in line:  # Başlık satırını atla
-                    continue
-                    
                 parts = line.strip().split('|')
-                if len(parts) == 2:
-                    audio_path, text = parts
-                    
-                    # Tam yolu oluştur
-                    full_audio_path = os.path.join(self.data_path, audio_path)
-                    
-                    # Ses dosyasının varlığını kontrol et
-                    if not os.path.exists(full_audio_path):
-                        logging.warning(f"Ses dosyası bulunamadı: {full_audio_path}")
-                        continue
-                        
-                    metadata.append((full_audio_path, text))
-                else:
-                    logging.warning(f"Geçersiz metadata formatı, satır {len(metadata)}: {line.strip()}")
-                    
-        logging.info(f"Toplam {len(metadata)} geçerli örnek bulundu")
-        return metadata
+                if len(parts) >= 2:
+                    # Doğrudan wav dosyası yolunu kullan
+                    audio_path = os.path.join(self.dataset_path, parts[0])
+                    if os.path.exists(audio_path):
+                        valid_samples.append({
+                            'id': parts[0],
+                            'text': parts[1],
+                            'audio_path': audio_path
+                        })
+                    else:
+                        logging.warning(f'Ses dosyası bulunamadı: {audio_path}')
+        
+        logging.info(f'Toplam {len(valid_samples)} geçerli örnek bulundu')
+        return valid_samples
         
     def __len__(self):
         return len(self.metadata)
         
     def __getitem__(self, idx):
         """Veri setinden bir örnek döndür"""
-        audio_path, text = self.metadata[idx]
+        sample = self.metadata[idx]
         
         try:
             # Ses dosyasını yükle
-            waveform, sr = torchaudio.load(audio_path)
+            waveform, sr = torchaudio.load(sample['audio_path'])
             
             # Tek kanala dönüştür
             if waveform.size(0) > 1:
@@ -110,7 +106,7 @@ class TurkishTTSDataset(Dataset):
             mel_spec = self.normalize_mel(mel_spec)
             
             # Metni fonemlere dönüştür
-            phonemes = text_to_sequence(text)
+            phonemes = text_to_sequence(sample['text'])
             phonemes = torch.LongTensor(phonemes)
             
             # Calculate initial duration targets
@@ -139,8 +135,8 @@ class TurkishTTSDataset(Dataset):
             }
             
         except Exception as e:
-            print(f"Hata oluştu - Dosya: {audio_path}, Metin: {text}")
-            print(f"Hata: {str(e)}")
+            print(f'Hata oluştu - Dosya: {sample["audio_path"]}, Metin: {sample["text"]}')
+            print(f'Hata: {str(e)}')
             return {
                 'phonemes': torch.zeros(1, dtype=torch.long),
                 'durations': torch.zeros(1),
@@ -187,9 +183,9 @@ def train_step(batch, model, optimizer, criterion, device):
     phoneme_lengths = (phonemes != 0).sum(1)  # Assuming 0 is padding
     
     # Print shapes for debugging
-    print(f"Phonemes shape: {phonemes.shape}")
-    print(f"Durations shape: {durations.shape}")
-    print(f"Phoneme lengths: {phoneme_lengths}")
+    print(f'Phonemes shape: {phonemes.shape}')
+    print(f'Durations shape: {durations.shape}')
+    print(f'Phoneme lengths: {phoneme_lengths}')
     
     # Create masks (if needed)
     src_mask = None  # Add proper mask creation if needed
@@ -207,20 +203,20 @@ def train_step(batch, model, optimizer, criterion, device):
     mel_pred = model_output['mel_pred']
     duration_pred = model_output['duration_pred']
     
-    print(f"Duration pred shape: {duration_pred.shape}")
+    print(f'Duration pred shape: {duration_pred.shape}')
     
     # Remove the last dimension if it's 1
     if duration_pred.size(-1) == 1:
         duration_pred = duration_pred.squeeze(-1)
     
-    print(f"Duration pred shape after squeeze: {duration_pred.shape}")
+    print(f'Duration pred shape after squeeze: {duration_pred.shape}')
     
     # Calculate losses only on non-padded positions
     mel_loss = criterion(mel_pred, mel_target)
     
     # Ensure duration_pred matches the expected sequence length
     if duration_pred.size(1) != phonemes.size(1):
-        print(f"Warning: Duration pred size {duration_pred.size(1)} doesn't match phoneme size {phonemes.size(1)}")
+        print(f'Warning: Duration pred size {duration_pred.size(1)} doesn\'t match phoneme size {phonemes.size(1)}')
         # Pad or truncate duration_pred to match phoneme length
         if duration_pred.size(1) < phonemes.size(1):
             duration_pred = F.pad(duration_pred, (0, phonemes.size(1) - duration_pred.size(1)))
@@ -229,7 +225,7 @@ def train_step(batch, model, optimizer, criterion, device):
     
     # Create mask for valid positions
     duration_mask = torch.arange(phonemes.size(1), device=device)[None, :] < phoneme_lengths[:, None]
-    print(f"Mask shape: {duration_mask.shape}")
+    print(f'Mask shape: {duration_mask.shape}')
     
     # Apply mask and calculate loss
     masked_pred = torch.where(duration_mask, duration_pred, torch.zeros_like(duration_pred))
@@ -307,8 +303,20 @@ def main():
     logger.info(f'Using device: {device}')
     
     # Dataset yolu
-    dataset_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dataset')
+    dataset_path = os.path.join('turkish_f5_tts', 'dataset')
+    if not os.path.exists(dataset_path):
+        dataset_path = os.path.join(os.getcwd(), 'turkish_f5_tts', 'dataset')
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f'Dataset dizini bulunamadı. Aranan yollar:\n'
+                              f'- turkish_f5_tts/dataset\n'
+                              f'- {os.getcwd()}/turkish_f5_tts/dataset')
+    
     logger.info(f'Dataset yolu: {dataset_path}')
+    
+    # Metadata dosyasını kontrol et
+    metadata_path = os.path.join(dataset_path, 'metadata.csv')
+    if not os.path.exists(metadata_path):
+        raise FileNotFoundError(f'metadata.csv dosyası bulunamadı: {metadata_path}')
     
     # Dataset ve DataLoader
     dataset = TurkishTTSDataset(dataset_path, config)
