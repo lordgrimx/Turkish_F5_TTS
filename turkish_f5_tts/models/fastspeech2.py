@@ -20,14 +20,14 @@ class VariancePredictor(nn.Module):
                 kernel_size=self.kernel, padding=(self.kernel-1)//2
             ),
             nn.ReLU(),
-            nn.LayerNorm(self.filter_size),
+            nn.GroupNorm(num_groups=1, num_channels=self.filter_size),
             nn.Dropout(self.dropout),
             nn.Conv1d(
                 self.filter_size, self.filter_size,
                 kernel_size=self.kernel, padding=1
             ),
             nn.ReLU(),
-            nn.LayerNorm(self.filter_size),
+            nn.GroupNorm(num_groups=1, num_channels=self.filter_size),
             nn.Dropout(self.dropout)
         )
         
