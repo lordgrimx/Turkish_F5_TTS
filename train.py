@@ -100,6 +100,30 @@ class TurkishTTSDataset(Dataset):
                 'phonemes': torch.zeros(1, dtype=torch.long)
             }
 
+def collate_fn(batch):
+    """Custom collate function to handle variable length sequences"""
+    # Filter out any None values (failed samples)
+    batch = [b for b in batch if b is not None]
+    if not batch:
+        return None
+    
+    # Get max sequence length in this batch
+    max_phoneme_len = max(x['phonemes'].size(0) for x in batch)
+    
+    # Prepare tensors
+    waveforms = torch.stack([x['waveform'] for x in batch])
+    phonemes_padded = torch.zeros(len(batch), max_phoneme_len, dtype=torch.long)
+    
+    # Pad phonemes
+    for i, x in enumerate(batch):
+        phoneme_len = x['phonemes'].size(0)
+        phonemes_padded[i, :phoneme_len] = x['phonemes']
+    
+    return {
+        'waveform': waveforms,
+        'phonemes': phonemes_padded
+    }
+
 def train(config, model, train_loader, optimizer, criterion, device, epoch):
     """Bir epoch için eğitim"""
     model.train()
@@ -175,7 +199,8 @@ def main():
         batch_size=config.batch_size,
         shuffle=True,
         num_workers=4,
-        pin_memory=True
+        pin_memory=True,
+        collate_fn=collate_fn
     )
     
     logger.info(f'Dataset size: {len(dataset)} samples')
