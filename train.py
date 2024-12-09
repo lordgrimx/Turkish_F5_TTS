@@ -34,13 +34,7 @@ class TurkishTTSDataset(Dataset):
                 parts = line.strip().split('|')
                 if len(parts) == 2:
                     audio_path, text = parts
-                    
-                    # Yolu düzelt
-                    if audio_path.startswith('dataset/dataset/'):
-                        audio_path = audio_path.replace('dataset/dataset/', 'dataset/')
-                    elif not audio_path.startswith('dataset/'):
-                        audio_path = f'dataset/{audio_path}'
-                        
+                                 
                     # Tam yolu oluştur
                     full_audio_path = os.path.join(self.data_path, audio_path)
                     
