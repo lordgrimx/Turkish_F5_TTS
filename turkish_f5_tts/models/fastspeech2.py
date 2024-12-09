@@ -47,6 +47,28 @@ class VariancePredictor(nn.Module):
             
         return out
 
+class LengthRegulator(nn.Module):
+    def __init__(self):
+        super(LengthRegulator, self).__init__()
+
+    def forward(self, x, duration_predictor_output, max_len=None):
+        expand_max_len = torch.max(torch.sum(duration_predictor_output, -1), -1)[0]
+        if max_len is not None:
+            expand_max_len = max_len
+
+        expand_max_len = int(expand_max_len.item())
+        output = torch.zeros(x.size(0), expand_max_len, x.size(2)).to(x.device)
+        
+        for i, seq in enumerate(x):
+            pos = 0
+            for j, dur in enumerate(duration_predictor_output[i]):
+                dur = int(dur.item())
+                if dur > 0:
+                    output[i, pos:pos + dur] = seq[j].unsqueeze(0).expand(dur, -1)
+                    pos += dur
+        
+        return output
+
 class FastSpeech2(nn.Module):
     def __init__(self, model_config):
         super(FastSpeech2, self).__init__()
@@ -73,6 +95,9 @@ class FastSpeech2(nn.Module):
         self.variance_adaptor = nn.ModuleList([
             VariancePredictor(model_config) for _ in range(3)  # Duration, Pitch, Energy
         ])
+        
+        # Add length regulator
+        self.length_regulator = LengthRegulator()
         
         self.decoder = nn.ModuleList([
             FFTBlock(
@@ -109,23 +134,21 @@ class FastSpeech2(nn.Module):
         if duration_target is not None:
             output = self.length_regulator(encoder_output, duration_target, max_len)
         else:
-            duration_rounded = torch.clamp(
-                (torch.round(torch.exp(duration_pred) - 1)), min=0
-            )
+            duration_rounded = torch.clamp(torch.round(duration_pred), min=0)
             output = self.length_regulator(encoder_output, duration_rounded, max_len)
-            
+        
         # Decoder
         for decoder_layer in self.decoder:
             output = decoder_layer(output, mel_mask)
             
-        # Mel Linear
-        output = self.mel_linear(output)
+        # Project to mel-spectrogram
+        mel_pred = self.mel_linear(output)
         
         return {
-            "mel_pred": output,
-            "duration_pred": duration_pred,
-            "pitch_pred": pitch_pred,
-            "energy_pred": energy_pred
+            'mel_pred': mel_pred,
+            'duration_pred': duration_pred,
+            'pitch_pred': pitch_pred,
+            'energy_pred': energy_pred
         }
         
     def inference(self, src_seq, speed_ratio=1.0):
@@ -142,9 +165,7 @@ class FastSpeech2(nn.Module):
         energy_pred = self.variance_adaptor[2](encoder_output, src_mask)
         
         # Adjust duration for speed
-        duration_rounded = torch.clamp(
-            (torch.round(torch.exp(duration_pred) - 1) / speed_ratio), min=0
-        )
+        duration_rounded = torch.clamp(torch.round(duration_pred / speed_ratio), min=0)
         
         # Length Regulation
         output = self.length_regulator(encoder_output, duration_rounded)
@@ -153,7 +174,7 @@ class FastSpeech2(nn.Module):
         for decoder_layer in self.decoder:
             output = decoder_layer(output)
             
-        # Mel Linear
-        output = self.mel_linear(output)
+        # Project to mel-spectrogram
+        mel_pred = self.mel_linear(output)
         
-        return output
+        return mel_pred
