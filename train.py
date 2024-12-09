@@ -13,10 +13,20 @@ from tqdm import tqdm
 import logging
 import torchaudio
 
+def pad_sequence(waveform, target_length):
+    """Ses dosyasını hedef uzunluğa getir"""
+    current_length = waveform.size(-1)
+    if current_length > target_length:
+        return waveform[..., :target_length]
+    else:
+        padding = torch.zeros((*waveform.shape[:-1], target_length - current_length))
+        return torch.cat([waveform, padding], dim=-1)
+
 class TurkishTTSDataset(Dataset):
     def __init__(self, data_path, config):
         self.data_path = data_path
         self.config = config
+        self.target_length = int(config.max_seq_len * config.sample_rate / 1000)  # ms to samples
         self.audio_processor = AudioProcessor()
         self.metadata = self.load_metadata()
         
@@ -57,39 +67,38 @@ class TurkishTTSDataset(Dataset):
         """Veri setinden bir örnek döndür"""
         audio_path, text = self.metadata[idx]
         
-        # Ses dosyasını yükle
-        waveform, sr = torchaudio.load(audio_path)
-        
-        # Tek kanala dönüştür
-        if waveform.size(0) > 1:
-            waveform = torch.mean(waveform, dim=0, keepdim=True)
-            
-        # Örnekleme hızını kontrol et
-        if sr != self.config.sample_rate:  
-            waveform = torchaudio.transforms.Resample(sr, self.config.sample_rate)(waveform)
-            
-        # Ses uzunluğunu kontrol et
-        max_length = int(self.config.max_seq_len * self.config.sample_rate / 1000)  
-        if waveform.size(1) > max_length:
-            waveform = waveform[:, :max_length]
-            
-        # Metni fonemlere dönüştür
         try:
+            # Ses dosyasını yükle
+            waveform, sr = torchaudio.load(audio_path)
+            
+            # Tek kanala dönüştür
+            if waveform.size(0) > 1:
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
+                
+            # Örnekleme hızını kontrol et
+            if sr != self.config.sample_rate:
+                waveform = torchaudio.transforms.Resample(sr, self.config.sample_rate)(waveform)
+                
+            # Ses uzunluğunu ayarla
+            waveform = pad_sequence(waveform, self.target_length)
+            
+            # Metni fonemlere dönüştür
             phonemes = text_to_sequence(text)
             phonemes = torch.LongTensor(phonemes)
+            
+            return {
+                'waveform': waveform.squeeze(0),
+                'phonemes': phonemes
+            }
+            
         except Exception as e:
-            print(f"Metin dönüştürme hatası: {text}")
+            print(f"Hata oluştu - Dosya: {audio_path}, Metin: {text}")
             print(f"Hata: {str(e)}")
             # Hata durumunda boş bir örnek döndür
             return {
-                'waveform': torch.zeros(1, max_length),
+                'waveform': torch.zeros(self.target_length),
                 'phonemes': torch.zeros(1, dtype=torch.long)
             }
-            
-        return {
-            'waveform': waveform.squeeze(0),  
-            'phonemes': phonemes  
-        }
 
 def train(config, model, train_loader, optimizer, criterion, device, epoch):
     """Bir epoch için eğitim"""
