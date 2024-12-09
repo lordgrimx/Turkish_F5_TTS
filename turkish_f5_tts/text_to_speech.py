@@ -8,23 +8,22 @@ from .utils.constants import ModelConfig
 
 class TextToSpeech:
     def __init__(self, model_path=None, device='cuda' if torch.cuda.is_available() else 'cpu', config=None):
-        self.device = device
+        # Create config first
         self.config = config if config is not None else ModelConfig()
         
-        # Initialize models
-        self._init_models()
+        # Set device
+        self.device = device
         
-        # Load checkpoint if provided
-        if model_path:
-            self._load_model(model_path)
-    
-    def _init_models(self):
-        """Initialize FastSpeech2 and HiFiGAN models"""
-        self.fastspeech = FastSpeech2(self.config)
+        # Initialize models
+        self.fastspeech = FastSpeech2(model_config=self.config)
         self.fastspeech = self.fastspeech.to(self.device)
         self.vocoder = HiFiGAN()
         self.vocoder = self.vocoder.to(self.device)
         self.audio_processor = AudioProcessor()
+        
+        # Load checkpoint if provided
+        if model_path:
+            self._load_model(model_path)
     
     def _load_model(self, model_path):
         """Load model checkpoint"""
