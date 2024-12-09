@@ -183,6 +183,9 @@ def train_step(batch, model, optimizer, criterion, device):
     durations = batch['durations'].to(device)
     mel_target = batch['mel'].to(device)
     
+    # Get sequence lengths
+    phoneme_lengths = (phonemes != 0).sum(1)  # Assuming 0 is padding
+    
     # Create masks (if needed)
     src_mask = None  # Add proper mask creation if needed
     mel_mask = None  # Add proper mask creation if needed
@@ -199,8 +202,20 @@ def train_step(batch, model, optimizer, criterion, device):
     mel_pred = model_output['mel_pred']
     duration_pred = model_output['duration_pred']
     
-    # Calculate losses
+    # Ensure durations have same shape
+    max_len = max(duration_pred.size(1), durations.size(1))
+    if duration_pred.size(1) < max_len:
+        duration_pred = F.pad(duration_pred, (0, max_len - duration_pred.size(1)))
+    if durations.size(1) < max_len:
+        durations = F.pad(durations, (0, max_len - durations.size(1)))
+    
+    # Calculate losses only on non-padded positions
     mel_loss = criterion(mel_pred, mel_target)
+    
+    # Calculate duration loss only on valid positions
+    duration_mask = torch.arange(max_len, device=device)[None, :] < phoneme_lengths[:, None]
+    duration_pred = duration_pred.masked_fill(~duration_mask, 0)
+    durations = durations.masked_fill(~duration_mask, 0)
     duration_loss = F.mse_loss(duration_pred, durations.float())
     
     # Total loss (you can adjust the weights)

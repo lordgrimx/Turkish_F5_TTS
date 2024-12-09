@@ -3,6 +3,7 @@ import torch.nn as nn
 import numpy as np
 from .transformer import FFTBlock
 from ..utils.constants import *
+import torch.nn.functional as F
 
 class VariancePredictor(nn.Module):
     def __init__(self, model_config):
@@ -153,6 +154,11 @@ class FastSpeech2(nn.Module):
             
         # Variance Adaptor
         duration_pred = self.variance_adaptor[0](encoder_output, src_mask)
+        
+        # Ensure duration prediction matches input sequence length
+        if duration_pred.size(1) != src_seq.size(1):
+            duration_pred = F.pad(duration_pred, (0, src_seq.size(1) - duration_pred.size(1)))
+        
         pitch_pred = self.variance_adaptor[1](encoder_output, src_mask)
         energy_pred = self.variance_adaptor[2](encoder_output, src_mask)
         
