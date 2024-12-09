@@ -6,6 +6,7 @@ class ModelConfig:
     encoder_conv1d_filter_size = 1024
     encoder_conv1d_kernel_size = 9
     encoder_conv1d_padding = 4
+    vocab_size = 256  # Size of phoneme vocabulary
     
     # Decoder parameters
     decoder_hidden = 256

@@ -46,6 +46,12 @@ class FastSpeech2(nn.Module):
     def __init__(self, model_config):
         super(FastSpeech2, self).__init__()
         
+        # Add phoneme embedding layer
+        self.phoneme_embedding = nn.Embedding(
+            model_config.vocab_size,  # Size of phoneme vocabulary
+            model_config.encoder_hidden
+        )
+        
         self.encoder = nn.ModuleList([
             FFTBlock(
                 model_config.encoder_hidden,
@@ -85,7 +91,7 @@ class FastSpeech2(nn.Module):
                 pitch_target=None, energy_target=None, max_len=None):
         
         # Encoder
-        encoder_output = src_seq
+        encoder_output = self.phoneme_embedding(src_seq)
         for encoder_layer in self.encoder:
             encoder_output = encoder_layer(encoder_output, src_mask)
             
@@ -121,7 +127,7 @@ class FastSpeech2(nn.Module):
         src_mask = torch.ones(1, src_seq.size(1)).bool()
         
         # Encoder
-        encoder_output = src_seq
+        encoder_output = self.phoneme_embedding(src_seq)
         for encoder_layer in self.encoder:
             encoder_output = encoder_layer(encoder_output, src_mask)
             
