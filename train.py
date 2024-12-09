@@ -26,7 +26,7 @@ class TurkishTTSDataset(Dataset):
             for line in f:
                 parts = line.strip().split('|')
                 if len(parts) == 2:
-                    audio_path = os.path.join(self.data_path, 'wavs', parts[0])
+                    audio_path = os.path.join(self.data_path, parts[0])
                     text = parts[1]
                     if os.path.exists(audio_path):
                         self.metadata.append((audio_path, text))
@@ -113,7 +113,7 @@ def main():
     criterion = nn.MSELoss()
     
     # Dataset ve DataLoader
-    dataset = TurkishTTSDataset('path/to/your/dataset', config)
+    dataset = TurkishTTSDataset('./dataset', config)
     train_loader = DataLoader(
         dataset,
         batch_size=config.batch_size,
