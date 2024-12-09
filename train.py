@@ -22,14 +22,32 @@ class TurkishTTSDataset(Dataset):
     def load_metadata(self):
         """Veri seti metadatasını yükle"""
         self.metadata = []
-        with open(os.path.join(self.data_path, 'metadata.csv'), 'r', encoding='utf-8') as f:
-            for line in f:
+        metadata_path = os.path.join(self.data_path, 'metadata.csv')
+        
+        if not os.path.exists(metadata_path):
+            raise FileNotFoundError(f"metadata.csv dosyası bulunamadı: {metadata_path}")
+            
+        logging.info(f"Metadata dosyası yükleniyor: {metadata_path}")
+        
+        with open(metadata_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            logging.info(f"Toplam {len(lines)} satır okundu")
+            
+            for i, line in enumerate(lines):
                 parts = line.strip().split('|')
                 if len(parts) == 2:
                     audio_path = os.path.join(self.data_path, parts[0])
                     text = parts[1]
                     if os.path.exists(audio_path):
                         self.metadata.append((audio_path, text))
+                    else:
+                        logging.warning(f"Ses dosyası bulunamadı: {audio_path}")
+                else:
+                    logging.warning(f"Geçersiz metadata formatı, satır {i+1}: {line.strip()}")
+        
+        logging.info(f"Toplam {len(self.metadata)} geçerli örnek bulundu")
+        if len(self.metadata) == 0:
+            raise ValueError("Hiç geçerli örnek bulunamadı! Lütfen veri seti yapısını kontrol edin.")
                         
     def __len__(self):
         return len(self.metadata)
@@ -100,6 +118,13 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
     
+    # Dataset yolunu kontrol et
+    dataset_path = './dataset'
+    dataset_path = os.path.abspath(dataset_path)
+    logger.info(f'Dataset yolu: {dataset_path}')
+    if not os.path.exists(dataset_path):
+        raise FileNotFoundError(f'Dataset dizini bulunamadı: {dataset_path}')
+    
     # Model
     model = FastSpeech2(config).to(device)
     vocoder = HiFiGAN().to(device)
@@ -113,7 +138,7 @@ def main():
     criterion = nn.MSELoss()
     
     # Dataset ve DataLoader
-    dataset = TurkishTTSDataset('./dataset', config)
+    dataset = TurkishTTSDataset(dataset_path, config)
     train_loader = DataLoader(
         dataset,
         batch_size=config.batch_size,
