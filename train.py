@@ -18,38 +18,44 @@ class TurkishTTSDataset(Dataset):
         self.data_path = data_path
         self.config = config
         self.audio_processor = AudioProcessor()
-        self.load_metadata()
+        self.metadata = self.load_metadata()
         
     def load_metadata(self):
-        """Veri seti metadatasını yükle"""
-        self.metadata = []
+        """Metadata dosyasını yükle"""
         metadata_path = os.path.join(self.data_path, 'metadata.csv')
-        
-        if not os.path.exists(metadata_path):
-            raise FileNotFoundError(f"metadata.csv dosyası bulunamadı: {metadata_path}")
-            
         logging.info(f"Metadata dosyası yükleniyor: {metadata_path}")
         
+        metadata = []
         with open(metadata_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            logging.info(f"Toplam {len(lines)} satır okundu")
-            
-            for i, line in enumerate(lines):
+            for line in f:
+                if 'audio_path' in line:  # Başlık satırını atla
+                    continue
+                    
                 parts = line.strip().split('|')
                 if len(parts) == 2:
-                    audio_path = os.path.join(self.data_path, parts[0])
-                    text = parts[1]
-                    if os.path.exists(audio_path):
-                        self.metadata.append((audio_path, text))
-                    else:
-                        logging.warning(f"Ses dosyası bulunamadı: {audio_path}")
-                else:
-                    logging.warning(f"Geçersiz metadata formatı, satır {i+1}: {line.strip()}")
-        
-        logging.info(f"Toplam {len(self.metadata)} geçerli örnek bulundu")
-        if len(self.metadata) == 0:
-            raise ValueError("Hiç geçerli örnek bulunamadı! Lütfen veri seti yapısını kontrol edin.")
+                    audio_path, text = parts
+                    
+                    # Yolu düzelt
+                    if audio_path.startswith('dataset/dataset/'):
+                        audio_path = audio_path.replace('dataset/dataset/', 'dataset/')
+                    elif not audio_path.startswith('dataset/'):
+                        audio_path = f'dataset/{audio_path}'
                         
+                    # Tam yolu oluştur
+                    full_audio_path = os.path.join(self.data_path, audio_path)
+                    
+                    # Ses dosyasının varlığını kontrol et
+                    if not os.path.exists(full_audio_path):
+                        logging.warning(f"Ses dosyası bulunamadı: {full_audio_path}")
+                        continue
+                        
+                    metadata.append((full_audio_path, text))
+                else:
+                    logging.warning(f"Geçersiz metadata formatı, satır {len(metadata)}: {line.strip()}")
+                    
+        logging.info(f"Toplam {len(metadata)} geçerli örnek bulundu")
+        return metadata
+        
     def __len__(self):
         return len(self.metadata)
         
