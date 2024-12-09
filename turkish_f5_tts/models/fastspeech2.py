@@ -52,20 +52,35 @@ class LengthRegulator(nn.Module):
         super(LengthRegulator, self).__init__()
 
     def forward(self, x, duration_predictor_output, max_len=None):
-        expand_max_len = torch.max(torch.sum(duration_predictor_output, -1), -1)[0]
-        if max_len is not None:
-            expand_max_len = max_len
-
-        expand_max_len = int(expand_max_len.item())
-        output = torch.zeros(x.size(0), expand_max_len, x.size(2)).to(x.device)
+        batch_size, seq_len, hidden_size = x.size()
         
-        for i, seq in enumerate(x):
+        # Calculate expanded lengths for each sequence in the batch
+        expanded_lens = torch.sum(duration_predictor_output, dim=1)  # [batch_size]
+        
+        # If max_len is provided, use it; otherwise use the maximum expanded length
+        if max_len is not None:
+            max_output_len = max_len
+        else:
+            max_output_len = int(expanded_lens.max().item())
+        
+        # Initialize output tensor
+        output = torch.zeros(batch_size, max_output_len, hidden_size).to(x.device)
+        
+        # Process each sequence in the batch
+        for i in range(batch_size):
+            current_seq = x[i]
+            current_durations = duration_predictor_output[i]
+            
+            # Create position counter
             pos = 0
-            for j, dur in enumerate(duration_predictor_output[i]):
-                dur = int(dur.item())
-                if dur > 0:
-                    output[i, pos:pos + dur] = seq[j].unsqueeze(0).expand(dur, -1)
-                    pos += dur
+            
+            # Expand each frame according to its duration
+            for j, duration in enumerate(current_durations):
+                duration = int(duration.item())
+                if duration > 0:
+                    # Repeat the frame 'duration' times
+                    output[i, pos:pos + duration] = current_seq[j].unsqueeze(0).expand(duration, -1)
+                    pos += duration
         
         return output
 
