@@ -303,13 +303,13 @@ def main():
     logger.info(f'Using device: {device}')
     
     # Dataset yolu
-    dataset_path = os.path.join('turkish_f5_tts', 'dataset')
+    dataset_path = 'dataset'
     if not os.path.exists(dataset_path):
-        dataset_path = os.path.join(os.getcwd(), 'turkish_f5_tts', 'dataset')
+        dataset_path = os.path.join(os.getcwd(), 'dataset')
     if not os.path.exists(dataset_path):
         raise FileNotFoundError(f'Dataset dizini bulunamadı. Aranan yollar:\n'
-                              f'- turkish_f5_tts/dataset\n'
-                              f'- {os.getcwd()}/turkish_f5_tts/dataset')
+                              f'- dataset\n'
+                              f'- {os.getcwd()}/dataset')
     
     logger.info(f'Dataset yolu: {dataset_path}')
     
