@@ -12,6 +12,7 @@ import numpy as np
 from tqdm import tqdm
 import logging
 import torchaudio
+from torch import F
 
 def pad_sequence(waveform, target_length):
     """Ses dosyasını hedef uzunluğa getir"""
@@ -43,6 +44,11 @@ class TurkishTTSDataset(Dataset):
         
         # Duration ratio for initial duration targets
         self.duration_ratio = 256  # hop_length of mel transform
+        
+    def normalize_mel(self, mel):
+        """Normalize mel-spectrogram"""
+        mel = torch.log(torch.clamp(mel, min=1e-5))
+        return (mel - mel.mean()) / (mel.std() + 1e-8)
         
     def load_metadata(self):
         """Metadata dosyasını yükle"""
@@ -100,6 +106,9 @@ class TurkishTTSDataset(Dataset):
             mel_spec = self.mel_transform(waveform)  # [1, n_mels, time]
             mel_spec = mel_spec.squeeze(0).transpose(0, 1)  # [time, n_mels]
             
+            # Normalize mel-spectrogram
+            mel_spec = self.normalize_mel(mel_spec)
+            
             # Metni fonemlere dönüştür
             phonemes = text_to_sequence(text)
             phonemes = torch.LongTensor(phonemes)
@@ -124,18 +133,18 @@ class TurkishTTSDataset(Dataset):
                     remaining_frames -= duration[i]
             
             return {
-                'mel_spec': mel_spec,
                 'phonemes': phonemes,
-                'duration': duration
+                'durations': duration,
+                'mel': mel_spec
             }
             
         except Exception as e:
             print(f"Hata oluştu - Dosya: {audio_path}, Metin: {text}")
             print(f"Hata: {str(e)}")
             return {
-                'mel_spec': torch.zeros(1000, self.config.n_mel_channels),
                 'phonemes': torch.zeros(1, dtype=torch.long),
-                'duration': torch.zeros(1)
+                'durations': torch.zeros(1),
+                'mel': torch.zeros(1000, self.config.n_mel_channels)
             }
 
 def collate_fn(batch):
@@ -147,68 +156,108 @@ def collate_fn(batch):
     
     # Get max lengths
     max_phoneme_len = max(x['phonemes'].size(0) for x in batch)
-    max_mel_len = max(x['mel_spec'].size(0) for x in batch)
+    max_mel_len = max(x['mel'].size(0) for x in batch)
     
     # Prepare tensors
-    mel_specs = torch.zeros(len(batch), max_mel_len, batch[0]['mel_spec'].size(1))
     phonemes_padded = torch.zeros(len(batch), max_phoneme_len, dtype=torch.long)
     durations_padded = torch.zeros(len(batch), max_phoneme_len)
+    mel_specs = torch.zeros(len(batch), max_mel_len, batch[0]['mel'].size(1))
     
     # Pad sequences
     for i, x in enumerate(batch):
-        mel_len = x['mel_spec'].size(0)
         phoneme_len = x['phonemes'].size(0)
-        mel_specs[i, :mel_len] = x['mel_spec']
+        mel_len = x['mel'].size(0)
         phonemes_padded[i, :phoneme_len] = x['phonemes']
-        durations_padded[i, :phoneme_len] = x['duration']
+        durations_padded[i, :phoneme_len] = x['durations']
+        mel_specs[i, :mel_len] = x['mel']
     
     return {
-        'mel_spec': mel_specs,
         'phonemes': phonemes_padded,
-        'duration': durations_padded
+        'durations': durations_padded,
+        'mel': mel_specs
     }
 
-def train(config, model, train_loader, optimizer, criterion, device, epoch):
-    """Bir epoch için eğitim"""
+def train_step(batch, model, optimizer, criterion, device):
+    # Move batch to device
+    phonemes = batch['phonemes'].to(device)
+    durations = batch['durations'].to(device)
+    mel_target = batch['mel'].to(device)
+    
+    # Create masks (if needed)
+    src_mask = None  # Add proper mask creation if needed
+    mel_mask = None  # Add proper mask creation if needed
+    
+    # Forward pass
+    model_output = model(
+        src_seq=phonemes,
+        src_mask=src_mask,
+        mel_mask=mel_mask,
+        duration_target=durations,
+        max_len=mel_target.size(1)
+    )
+    
+    mel_pred = model_output['mel_pred']
+    duration_pred = model_output['duration_pred']
+    
+    # Calculate losses
+    mel_loss = criterion(mel_pred, mel_target)
+    duration_loss = F.mse_loss(duration_pred, durations.float())
+    
+    # Total loss (you can adjust the weights)
+    total_loss = mel_loss + duration_loss
+    
+    # Backward pass
+    optimizer.zero_grad()
+    total_loss.backward()
+    
+    # Gradient clipping
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+    
+    optimizer.step()
+    
+    return {
+        'total_loss': total_loss.item(),
+        'mel_loss': mel_loss.item(),
+        'duration_loss': duration_loss.item()
+    }
+
+def train(model, train_loader, optimizer, criterion, num_epochs, device):
     model.train()
-    total_loss = 0
     
-    progress_bar = tqdm(train_loader, desc=f'Epoch {epoch+1}')
-    for batch_idx, batch in enumerate(progress_bar):
-        optimizer.zero_grad()
+    for epoch in range(num_epochs):
+        epoch_stats = {
+            'total_loss': 0.0,
+            'mel_loss': 0.0,
+            'duration_loss': 0.0
+        }
         
-        # Batch verilerini device'a taşı
-        mel_spec = batch['mel_spec'].to(device)
-        phonemes = batch['phonemes'].to(device)
-        duration = batch['duration'].to(device)
+        for batch_idx, batch in enumerate(train_loader):
+            step_stats = train_step(batch, model, optimizer, criterion, device)
+            
+            # Update epoch stats
+            for k, v in step_stats.items():
+                epoch_stats[k] += v
+            
+            # Print progress
+            if batch_idx % 10 == 0:
+                print(f'Epoch {epoch+1}/{num_epochs} - Batch {batch_idx}/{len(train_loader)} - '
+                      f'Loss: {step_stats["total_loss"]:.4f} '
+                      f'(Mel: {step_stats["mel_loss"]:.4f}, Dur: {step_stats["duration_loss"]:.4f})')
         
-        # Forward pass with duration targets
-        output = model(phonemes, duration_target=duration)
+        # Print epoch summary
+        avg_total_loss = epoch_stats['total_loss'] / len(train_loader)
+        avg_mel_loss = epoch_stats['mel_loss'] / len(train_loader)
+        avg_duration_loss = epoch_stats['duration_loss'] / len(train_loader)
         
-        # Loss hesapla
-        loss = criterion(output['mel_pred'], mel_spec)
-        
-        # Backward pass
-        loss.backward()
-        
-        # Gradient clipping
-        nn.utils.clip_grad_norm_(model.parameters(), config.grad_clip_thresh)
-        
-        # Optimize
-        optimizer.step()
-        
-        # Loss güncelle
-        total_loss += loss.item()
-        current_loss = total_loss / (batch_idx + 1)
-        
-        # Progress bar güncelle
-        progress_bar.set_postfix({'loss': f'{current_loss:.4f}'})
-    
-    return total_loss / len(train_loader)
+        print(f'\nEpoch {epoch+1} Summary:')
+        print(f'Average Total Loss: {avg_total_loss:.4f}')
+        print(f'Average Mel Loss: {avg_mel_loss:.4f}')
+        print(f'Average Duration Loss: {avg_duration_loss:.4f}\n')
 
 def main():
     # Config
     config = ModelConfig()
+    config.epochs = 10
     
     # Logging ayarla
     logging.basicConfig(level=logging.INFO)
@@ -253,7 +302,7 @@ def main():
     # Training loop
     best_loss = float('inf')
     for epoch in range(config.epochs):
-        loss = train(config, model, train_loader, optimizer, criterion, device, epoch)
+        loss = train(model, train_loader, optimizer, criterion, 1, device)
         logger.info(f'Epoch {epoch+1}, Loss: {loss:.4f}')
         
         # Her 10 epoch'ta bir checkpoint kaydet

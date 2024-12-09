@@ -138,6 +138,11 @@ class FastSpeech2(nn.Module):
             model_config.n_mel_channels
         )
 
+    def normalize_mel(self, mel):
+        """Normalize mel-spectrogram output"""
+        mel = torch.log(torch.clamp(mel, min=1e-5))
+        return (mel - mel.mean()) / (mel.std() + 1e-8)
+
     def forward(self, src_seq, src_mask=None, mel_mask=None, duration_target=None,
                 pitch_target=None, energy_target=None, max_len=None):
         
@@ -162,8 +167,9 @@ class FastSpeech2(nn.Module):
         for decoder_layer in self.decoder:
             output = decoder_layer(output, mel_mask)
             
-        # Project to mel-spectrogram
+        # Project to mel-spectrogram and normalize
         mel_pred = self.mel_linear(output)
+        mel_pred = self.normalize_mel(mel_pred)
         
         return {
             'mel_pred': mel_pred,
@@ -197,5 +203,6 @@ class FastSpeech2(nn.Module):
             
         # Project to mel-spectrogram
         mel_pred = self.mel_linear(output)
+        mel_pred = self.normalize_mel(mel_pred)
         
         return mel_pred
