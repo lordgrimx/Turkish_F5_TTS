@@ -13,40 +13,42 @@ class VariancePredictor(nn.Module):
         self.filter_size = model_config.variance_predictor_filter_size
         self.kernel = model_config.variance_predictor_kernel_size
         self.conv_output_size = model_config.variance_predictor_filter_size
-        self.dropout = model_config.variance_predictor_dropout
+        self.dropout = model_config.dropout
         
         self.conv_layer = nn.Sequential(
             nn.Conv1d(
-                self.input_size, self.filter_size,
-                kernel_size=self.kernel, padding=(self.kernel-1)//2
+                self.input_size,
+                self.filter_size,
+                kernel_size=self.kernel,
+                padding=(self.kernel - 1) // 2
             ),
             nn.ReLU(),
-            nn.GroupNorm(num_groups=1, num_channels=self.filter_size),
+            nn.LayerNorm(self.filter_size),
             nn.Dropout(self.dropout),
             nn.Conv1d(
-                self.filter_size, self.filter_size,
-                kernel_size=self.kernel, padding=1
+                self.filter_size,
+                self.filter_size,
+                kernel_size=self.kernel,
+                padding=1
             ),
             nn.ReLU(),
-            nn.GroupNorm(num_groups=1, num_channels=self.filter_size),
+            nn.LayerNorm(self.filter_size),
             nn.Dropout(self.dropout)
         )
         
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
-
+    
     def forward(self, encoder_output, mask=None):
-        # Transpose input for Conv1d: [batch, length, channels] -> [batch, channels, length]
         out = encoder_output.transpose(1, 2)
         out = self.conv_layer(out)
-        
-        # Transpose back for linear layer: [batch, channels, length] -> [batch, length, channels]
         out = out.transpose(1, 2)
         out = self.linear_layer(out)
         
         if mask is not None:
-            out = out.masked_fill(mask.unsqueeze(-1), 0.0)
-            
-        return out
+            out = out.masked_fill(mask.unsqueeze(-1), 0)
+        
+        # Squeeze the last dimension to make it [batch_size, seq_len]
+        return out.squeeze(-1)
 
 class LengthRegulator(nn.Module):
     def __init__(self):

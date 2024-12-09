@@ -209,10 +209,15 @@ def train_step(batch, model, optimizer, criterion, device):
     
     print(f"Duration pred shape: {duration_pred.shape}")
     
+    # Remove the last dimension if it's 1
+    if duration_pred.size(-1) == 1:
+        duration_pred = duration_pred.squeeze(-1)
+    
+    print(f"Duration pred shape after squeeze: {duration_pred.shape}")
+    
     # Calculate losses only on non-padded positions
     mel_loss = criterion(mel_pred, mel_target)
     
-    # Handle duration loss
     # Ensure duration_pred matches the expected sequence length
     if duration_pred.size(1) != phonemes.size(1):
         print(f"Warning: Duration pred size {duration_pred.size(1)} doesn't match phoneme size {phonemes.size(1)}")
