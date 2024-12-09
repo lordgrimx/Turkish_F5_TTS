@@ -6,22 +6,30 @@ from .text import text_to_sequence
 from .utils.audio import AudioProcessor
 from .utils.constants import ModelConfig
 
-class TextToSpeech(torch.nn.Module):
+class TextToSpeech:
     def __init__(self, model_path=None, device='cuda' if torch.cuda.is_available() else 'cpu'):
-        super(TextToSpeech, self).__init__()
         self.device = device
         self.config = ModelConfig()
-        self.fastspeech = FastSpeech2(model_config=self.config)
-        self.fastspeech = self.fastspeech.to(device)
-        self.vocoder = HiFiGAN().to(device)
-        self.audio_processor = AudioProcessor()
         
+        # Initialize models
+        self._init_models()
+        
+        # Load checkpoint if provided
         if model_path:
             self._load_model(model_path)
     
+    def _init_models(self):
+        """Initialize FastSpeech2 and HiFiGAN models"""
+        self.fastspeech = FastSpeech2(model_config=self.config)
+        self.fastspeech = self.fastspeech.to(self.device)
+        self.vocoder = HiFiGAN()
+        self.vocoder = self.vocoder.to(self.device)
+        self.audio_processor = AudioProcessor()
+    
     def _load_model(self, model_path):
+        """Load model checkpoint"""
         checkpoint = torch.load(model_path, map_location=self.device)
-        self.fastspeech.load_state_dict(checkpoint['model'])
+        self.fastspeech.load_state_dict(checkpoint['model_state_dict'])
         
     def synthesize(self, text, output_path=None, speed_ratio=1.0):
         """
