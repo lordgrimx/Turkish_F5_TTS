@@ -34,7 +34,12 @@ class VariancePredictor(nn.Module):
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
 
     def forward(self, encoder_output, mask=None):
-        out = self.conv_layer(encoder_output)
+        # Transpose input for Conv1d: [batch, length, channels] -> [batch, channels, length]
+        out = encoder_output.transpose(1, 2)
+        out = self.conv_layer(out)
+        
+        # Transpose back for linear layer: [batch, channels, length] -> [batch, length, channels]
+        out = out.transpose(1, 2)
         out = self.linear_layer(out)
         
         if mask is not None:
