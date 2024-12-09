@@ -71,15 +71,21 @@ class LengthRegulator(nn.Module):
             current_seq = x[i]
             current_durations = duration_predictor_output[i]
             
-            # Create position counter
             pos = 0
-            
-            # Expand each frame according to its duration
             for j, duration in enumerate(current_durations):
                 duration = int(duration.item())
                 if duration > 0:
-                    # Repeat the frame 'duration' times
-                    output[i, pos:pos + duration] = current_seq[j].unsqueeze(0).expand(duration, -1)
+                    # Create the expanded features correctly
+                    expanded = current_seq[j:j+1].expand(duration, -1)
+                    # Make sure we don't exceed the output length
+                    if pos + duration <= max_output_len:
+                        output[i, pos:pos + duration] = expanded
+                    else:
+                        # If we would exceed max_output_len, only take what fits
+                        remaining = max_output_len - pos
+                        if remaining > 0:
+                            output[i, pos:max_output_len] = expanded[:remaining]
+                        break
                     pos += duration
         
         return output

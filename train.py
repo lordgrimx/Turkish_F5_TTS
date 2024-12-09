@@ -111,11 +111,17 @@ class TurkishTTSDataset(Dataset):
             
             # Distribute mel frames evenly across phonemes
             frames_per_phone = mel_len / phone_len
+            remaining_frames = mel_len
+            
             for i in range(phone_len):
                 if i == phone_len - 1:
-                    duration[i] = mel_len - sum(duration[:-1])
+                    # Last phoneme gets all remaining frames
+                    duration[i] = remaining_frames
                 else:
-                    duration[i] = round(frames_per_phone)
+                    # Round to nearest integer, ensuring at least 1 frame per phoneme
+                    dur = max(1, round(frames_per_phone))
+                    duration[i] = min(dur, remaining_frames)
+                    remaining_frames -= duration[i]
             
             return {
                 'mel_spec': mel_spec,
