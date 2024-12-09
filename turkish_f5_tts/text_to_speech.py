@@ -8,9 +8,9 @@ from .utils.constants import ModelConfig
 
 class TextToSpeech:
     def __init__(self, model_path=None, device='cuda' if torch.cuda.is_available() else 'cpu'):
-        self.device = device
         self.config = ModelConfig()
-        self.fastspeech = FastSpeech2(self.config).to(device)
+        self.device = device
+        self.fastspeech = FastSpeech2(model_config=self.config).to(device)
         self.vocoder = HiFiGAN().to(device)
         self.audio_processor = AudioProcessor()
         
