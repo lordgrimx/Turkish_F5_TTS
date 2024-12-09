@@ -7,9 +7,9 @@ from .utils.audio import AudioProcessor
 from .utils.constants import ModelConfig
 
 class TextToSpeech:
-    def __init__(self, model_path=None, device='cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, model_path=None, device='cuda' if torch.cuda.is_available() else 'cpu', config=None):
         self.device = device
-        self.config = ModelConfig()
+        self.config = config if config is not None else ModelConfig()
         
         # Initialize models
         self._init_models()
