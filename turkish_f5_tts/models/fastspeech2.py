@@ -49,10 +49,12 @@ class FastSpeech2(nn.Module):
         self.encoder = nn.ModuleList([
             FFTBlock(
                 model_config.encoder_hidden,
-                model_config.encoder_hidden,
-                model_config.encoder_head,
-                model_config.encoder_layer,
                 model_config.encoder_conv1d_filter_size,
+                model_config.encoder_head,
+                model_config.encoder_hidden // model_config.encoder_head,
+                model_config.encoder_hidden // model_config.encoder_head,
+                model_config.encoder_conv1d_kernel_size,
+                model_config.encoder_conv1d_padding,
                 model_config.dropout
             ) for _ in range(model_config.encoder_n_layer)
         ])
@@ -64,10 +66,12 @@ class FastSpeech2(nn.Module):
         self.decoder = nn.ModuleList([
             FFTBlock(
                 model_config.decoder_hidden,
-                model_config.decoder_hidden,
-                model_config.decoder_head,
-                model_config.decoder_layer,
                 model_config.decoder_conv1d_filter_size,
+                model_config.decoder_head,
+                model_config.decoder_hidden // model_config.decoder_head,
+                model_config.decoder_hidden // model_config.decoder_head,
+                model_config.decoder_conv1d_kernel_size,
+                model_config.decoder_conv1d_padding,
                 model_config.dropout
             ) for _ in range(model_config.decoder_n_layer)
         ])

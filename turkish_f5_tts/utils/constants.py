@@ -2,16 +2,18 @@ class ModelConfig:
     # Encoder parameters
     encoder_hidden = 256
     encoder_head = 2
-    encoder_layer = 4
-    encoder_conv1d_filter_size = 1024
     encoder_n_layer = 4
+    encoder_conv1d_filter_size = 1024
+    encoder_conv1d_kernel_size = 9
+    encoder_conv1d_padding = 4
     
     # Decoder parameters
     decoder_hidden = 256
     decoder_head = 2
-    decoder_layer = 4
-    decoder_conv1d_filter_size = 1024
     decoder_n_layer = 4
+    decoder_conv1d_filter_size = 1024
+    decoder_conv1d_kernel_size = 9
+    decoder_conv1d_padding = 4
     
     # Variance predictor
     variance_predictor_filter_size = 256
@@ -21,7 +23,7 @@ class ModelConfig:
     # Other
     dropout = 0.1
     n_mel_channels = 80
-    max_seq_len = 1000  # Uzun metinler için artırıldı
+    max_seq_len = 3000  # Uzun metinler için artırıldı
     
     # Training
     batch_size = 16
