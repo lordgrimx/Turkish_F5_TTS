@@ -15,40 +15,40 @@ class VariancePredictor(nn.Module):
         self.conv_output_size = model_config.variance_predictor_filter_size
         self.dropout = model_config.dropout
         
-        self.conv_layer = nn.Sequential(
-            nn.Conv1d(
-                self.input_size,
-                self.filter_size,
-                kernel_size=self.kernel,
-                padding=(self.kernel - 1) // 2
-            ),
-            nn.ReLU(),
-            nn.LayerNorm(self.filter_size),
-            nn.Dropout(self.dropout),
-            nn.Conv1d(
-                self.filter_size,
-                self.filter_size,
-                kernel_size=self.kernel,
-                padding=1
-            ),
-            nn.ReLU(),
-            nn.LayerNorm(self.filter_size),
-            nn.Dropout(self.dropout)
-        )
+        self.conv_net = nn.ModuleList([
+            nn.Sequential(
+                nn.Conv1d(
+                    self.input_size if i == 0 else self.filter_size,
+                    self.filter_size,
+                    kernel_size=self.kernel,
+                    padding=(self.kernel - 1) // 2
+                ),
+                nn.ReLU(),
+                nn.Dropout(self.dropout)
+            ) for i in range(2)
+        ])
+        
+        self.norm_layers = nn.ModuleList([
+            nn.InstanceNorm1d(self.filter_size)
+            for _ in range(2)
+        ])
         
         self.linear_layer = nn.Linear(self.conv_output_size, 1)
     
     def forward(self, encoder_output, mask=None):
-        out = encoder_output.transpose(1, 2)
-        out = self.conv_layer(out)
-        out = out.transpose(1, 2)
-        out = self.linear_layer(out)
+        out = encoder_output.transpose(1, 2)  # [batch, channels, length]
+        
+        for conv, norm in zip(self.conv_net, self.norm_layers):
+            out = conv(out)  # Apply conv and activation
+            out = norm(out)  # Apply normalization
+        
+        out = out.transpose(1, 2)  # [batch, length, channels]
+        out = self.linear_layer(out)  # [batch, length, 1]
         
         if mask is not None:
             out = out.masked_fill(mask.unsqueeze(-1), 0)
         
-        # Squeeze the last dimension to make it [batch_size, seq_len]
-        return out.squeeze(-1)
+        return out.squeeze(-1)  # [batch, length]
 
 class LengthRegulator(nn.Module):
     def __init__(self):
