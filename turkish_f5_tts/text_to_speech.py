@@ -20,7 +20,7 @@ class TextToSpeech:
     
     def _init_models(self):
         """Initialize FastSpeech2 and HiFiGAN models"""
-        self.fastspeech = FastSpeech2(model_config=self.config)
+        self.fastspeech = FastSpeech2(self.config)
         self.fastspeech = self.fastspeech.to(self.device)
         self.vocoder = HiFiGAN()
         self.vocoder = self.vocoder.to(self.device)
