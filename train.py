@@ -41,6 +41,9 @@ class TurkishTTSDataset(Dataset):
             f_max=config.mel_fmax
         )
         
+        # Duration ratio for initial duration targets
+        self.duration_ratio = 256  # hop_length of mel transform
+        
     def load_metadata(self):
         """Metadata dosyasını yükle"""
         metadata_path = os.path.join(self.data_path, 'metadata.csv')
@@ -101,18 +104,32 @@ class TurkishTTSDataset(Dataset):
             phonemes = text_to_sequence(text)
             phonemes = torch.LongTensor(phonemes)
             
+            # Calculate initial duration targets
+            mel_len = mel_spec.size(0)
+            phone_len = len(phonemes)
+            duration = torch.zeros(phone_len)
+            
+            # Distribute mel frames evenly across phonemes
+            frames_per_phone = mel_len / phone_len
+            for i in range(phone_len):
+                if i == phone_len - 1:
+                    duration[i] = mel_len - sum(duration[:-1])
+                else:
+                    duration[i] = round(frames_per_phone)
+            
             return {
-                'waveform': mel_spec,  # Now returning mel-spectrogram instead of waveform
-                'phonemes': phonemes
+                'mel_spec': mel_spec,
+                'phonemes': phonemes,
+                'duration': duration
             }
             
         except Exception as e:
             print(f"Hata oluştu - Dosya: {audio_path}, Metin: {text}")
             print(f"Hata: {str(e)}")
-            # Hata durumunda boş bir örnek döndür
             return {
-                'waveform': torch.zeros(1000, self.config.n_mel_channels),  # Adjusted for mel-spec shape
-                'phonemes': torch.zeros(1, dtype=torch.long)
+                'mel_spec': torch.zeros(1000, self.config.n_mel_channels),
+                'phonemes': torch.zeros(1, dtype=torch.long),
+                'duration': torch.zeros(1)
             }
 
 def collate_fn(batch):
@@ -124,22 +141,25 @@ def collate_fn(batch):
     
     # Get max lengths
     max_phoneme_len = max(x['phonemes'].size(0) for x in batch)
-    max_mel_len = max(x['waveform'].size(0) for x in batch)
+    max_mel_len = max(x['mel_spec'].size(0) for x in batch)
     
     # Prepare tensors
-    mel_specs = torch.zeros(len(batch), max_mel_len, batch[0]['waveform'].size(1))
+    mel_specs = torch.zeros(len(batch), max_mel_len, batch[0]['mel_spec'].size(1))
     phonemes_padded = torch.zeros(len(batch), max_phoneme_len, dtype=torch.long)
+    durations_padded = torch.zeros(len(batch), max_phoneme_len)
     
     # Pad sequences
     for i, x in enumerate(batch):
-        mel_len = x['waveform'].size(0)
+        mel_len = x['mel_spec'].size(0)
         phoneme_len = x['phonemes'].size(0)
-        mel_specs[i, :mel_len] = x['waveform']
+        mel_specs[i, :mel_len] = x['mel_spec']
         phonemes_padded[i, :phoneme_len] = x['phonemes']
+        durations_padded[i, :phoneme_len] = x['duration']
     
     return {
-        'waveform': mel_specs,  # This is actually mel-spectrogram now
-        'phonemes': phonemes_padded
+        'mel_spec': mel_specs,
+        'phonemes': phonemes_padded,
+        'duration': durations_padded
     }
 
 def train(config, model, train_loader, optimizer, criterion, device, epoch):
@@ -152,14 +172,15 @@ def train(config, model, train_loader, optimizer, criterion, device, epoch):
         optimizer.zero_grad()
         
         # Batch verilerini device'a taşı
-        waveform = batch['waveform'].to(device)
+        mel_spec = batch['mel_spec'].to(device)
         phonemes = batch['phonemes'].to(device)
+        duration = batch['duration'].to(device)
         
-        # Forward pass
-        output = model(phonemes)
+        # Forward pass with duration targets
+        output = model(phonemes, duration_target=duration)
         
         # Loss hesapla
-        loss = criterion(output['mel_pred'], waveform)
+        loss = criterion(output['mel_pred'], mel_spec)
         
         # Backward pass
         loss.backward()
