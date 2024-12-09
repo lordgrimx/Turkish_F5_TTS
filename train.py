@@ -277,7 +277,7 @@ def train(model, train_loader, optimizer, criterion, num_epochs, device):
                       f'Loss: {step_stats["total_loss"]:.4f} '
                       f'(Mel: {step_stats["mel_loss"]:.4f}, Dur: {step_stats["duration_loss"]:.4f})')
         
-        # Print epoch summary
+        # Calculate average losses
         avg_total_loss = epoch_stats['total_loss'] / len(train_loader)
         avg_mel_loss = epoch_stats['mel_loss'] / len(train_loader)
         avg_duration_loss = epoch_stats['duration_loss'] / len(train_loader)
@@ -286,6 +286,12 @@ def train(model, train_loader, optimizer, criterion, num_epochs, device):
         print(f'Average Total Loss: {avg_total_loss:.4f}')
         print(f'Average Mel Loss: {avg_mel_loss:.4f}')
         print(f'Average Duration Loss: {avg_duration_loss:.4f}\n')
+        
+        return {
+            'total_loss': avg_total_loss,
+            'mel_loss': avg_mel_loss,
+            'duration_loss': avg_duration_loss
+        }
 
 def main():
     # Config
@@ -300,86 +306,48 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f'Using device: {device}')
     
-    # Dataset yolunu kontrol et
-    dataset_path = './dataset'
-    dataset_path = os.path.abspath(dataset_path)
+    # Dataset yolu
+    dataset_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dataset')
     logger.info(f'Dataset yolu: {dataset_path}')
-    if not os.path.exists(dataset_path):
-        raise FileNotFoundError(f'Dataset dizini bulunamadı: {dataset_path}')
-    
-    # Model
-    model = FastSpeech2(config).to(device)
-    vocoder = HiFiGAN().to(device)
-    
-    # Optimizer
-    optimizer = optim.AdamW(model.parameters(),
-                           lr=config.learning_rate,
-                           weight_decay=config.weight_decay)
-    
-    # Loss
-    criterion = nn.MSELoss()
     
     # Dataset ve DataLoader
     dataset = TurkishTTSDataset(dataset_path, config)
     train_loader = DataLoader(
         dataset,
-        batch_size=config.batch_size,
+        batch_size=16,
         shuffle=True,
-        num_workers=4,
-        pin_memory=True,
-        collate_fn=collate_fn
+        collate_fn=collate_fn,
+        num_workers=4
     )
-    
     logger.info(f'Dataset size: {len(dataset)} samples')
+    
+    # Model
+    model = FastSpeech2(config).to(device)
+    
+    # Optimizer ve loss function
+    optimizer = optim.Adam(model.parameters(), lr=config.learning_rate)
+    criterion = nn.MSELoss()
     
     # Training loop
     best_loss = float('inf')
     for epoch in range(config.epochs):
-        loss = train(model, train_loader, optimizer, criterion, 1, device)
-        logger.info(f'Epoch {epoch+1}, Loss: {loss:.4f}')
+        epoch_stats = train(model, train_loader, optimizer, criterion, 1, device)
         
-        # Her 10 epoch'ta bir checkpoint kaydet
-        if (epoch + 1) % 10 == 0:
-            checkpoint_path = f'checkpoint_epoch_{epoch+1}.pt'
+        logger.info(f'Epoch {epoch+1} - '
+                   f'Loss: {epoch_stats["total_loss"]:.4f} '
+                   f'(Mel: {epoch_stats["mel_loss"]:.4f}, '
+                   f'Dur: {epoch_stats["duration_loss"]:.4f})')
+        
+        # Save checkpoint if loss improved
+        if epoch_stats["total_loss"] < best_loss:
+            best_loss = epoch_stats["total_loss"]
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-            }, checkpoint_path)
-            
-            # Google Drive'a kaydet (eğer Colab'da çalışıyorsa)
-            if os.environ.get('COLAB_GPU'):
-                try:
-                    drive_path = '/content/drive/MyDrive/turkish_f5_tts_checkpoints'
-                    os.makedirs(drive_path, exist_ok=True)
-                    drive_checkpoint_path = os.path.join(drive_path, checkpoint_path)
-                    os.system(f'cp {checkpoint_path} {drive_checkpoint_path}')
-                    logger.info(f'Checkpoint saved to Google Drive: {drive_checkpoint_path}')
-                except Exception as e:
-                    logger.warning(f'Could not save to Google Drive: {str(e)}')
-        
-        # En iyi modeli kaydet
-        if loss < best_loss:
-            best_loss = loss
-            best_model_path = 'best_model.pt'
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-            }, best_model_path)
-            
-            # En iyi modeli Google Drive'a kaydet
-            if os.environ.get('COLAB_GPU'):
-                try:
-                    drive_path = '/content/drive/MyDrive/turkish_f5_tts_checkpoints'
-                    os.makedirs(drive_path, exist_ok=True)
-                    drive_best_model_path = os.path.join(drive_path, 'best_model.pt')
-                    os.system(f'cp {best_model_path} {drive_best_model_path}')
-                    logger.info(f'Best model saved to Google Drive: {drive_best_model_path}')
-                except Exception as e:
-                    logger.warning(f'Could not save best model to Google Drive: {str(e)}')
+                'loss': best_loss,
+            }, 'checkpoint.pth')
+            logger.info(f'Checkpoint saved at epoch {epoch+1}')
 
 if __name__ == '__main__':
     main()
