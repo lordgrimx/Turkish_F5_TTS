@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from turkish_f5_tts.models.fastspeech2 import FastSpeech2
@@ -12,7 +13,6 @@ import numpy as np
 from tqdm import tqdm
 import logging
 import torchaudio
-from torch import F
 
 def pad_sequence(waveform, target_length):
     """Ses dosyasını hedef uzunluğa getir"""
