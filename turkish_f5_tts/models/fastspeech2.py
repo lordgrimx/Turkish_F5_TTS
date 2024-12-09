@@ -155,9 +155,17 @@ class FastSpeech2(nn.Module):
         # Variance Adaptor
         duration_pred = self.variance_adaptor[0](encoder_output, src_mask)
         
+        # Print shapes for debugging
+        print(f"Encoder output shape: {encoder_output.shape}")
+        print(f"Initial duration pred shape: {duration_pred.shape}")
+        
         # Ensure duration prediction matches input sequence length
         if duration_pred.size(1) != src_seq.size(1):
-            duration_pred = F.pad(duration_pred, (0, src_seq.size(1) - duration_pred.size(1)))
+            print(f"Adjusting duration pred from {duration_pred.size(1)} to {src_seq.size(1)}")
+            if duration_pred.size(1) < src_seq.size(1):
+                duration_pred = F.pad(duration_pred, (0, src_seq.size(1) - duration_pred.size(1)))
+            else:
+                duration_pred = duration_pred[:, :src_seq.size(1)]
         
         pitch_pred = self.variance_adaptor[1](encoder_output, src_mask)
         energy_pred = self.variance_adaptor[2](encoder_output, src_mask)

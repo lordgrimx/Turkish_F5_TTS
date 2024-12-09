@@ -186,6 +186,11 @@ def train_step(batch, model, optimizer, criterion, device):
     # Get sequence lengths
     phoneme_lengths = (phonemes != 0).sum(1)  # Assuming 0 is padding
     
+    # Print shapes for debugging
+    print(f"Phonemes shape: {phonemes.shape}")
+    print(f"Durations shape: {durations.shape}")
+    print(f"Phoneme lengths: {phoneme_lengths}")
+    
     # Create masks (if needed)
     src_mask = None  # Add proper mask creation if needed
     mel_mask = None  # Add proper mask creation if needed
@@ -202,22 +207,28 @@ def train_step(batch, model, optimizer, criterion, device):
     mel_pred = model_output['mel_pred']
     duration_pred = model_output['duration_pred']
     
+    print(f"Duration pred shape: {duration_pred.shape}")
+    
     # Calculate losses only on non-padded positions
     mel_loss = criterion(mel_pred, mel_target)
     
     # Handle duration loss
-    # First, ensure both tensors have the same size
-    min_len = min(duration_pred.size(1), durations.size(1))
-    duration_pred = duration_pred[:, :min_len]
-    durations = durations[:, :min_len]
+    # Ensure duration_pred matches the expected sequence length
+    if duration_pred.size(1) != phonemes.size(1):
+        print(f"Warning: Duration pred size {duration_pred.size(1)} doesn't match phoneme size {phonemes.size(1)}")
+        # Pad or truncate duration_pred to match phoneme length
+        if duration_pred.size(1) < phonemes.size(1):
+            duration_pred = F.pad(duration_pred, (0, phonemes.size(1) - duration_pred.size(1)))
+        else:
+            duration_pred = duration_pred[:, :phonemes.size(1)]
     
     # Create mask for valid positions
-    duration_mask = torch.arange(min_len, device=device)[None, :] < phoneme_lengths[:, None]
-    duration_mask = duration_mask[:, :min_len]
+    duration_mask = torch.arange(phonemes.size(1), device=device)[None, :] < phoneme_lengths[:, None]
+    print(f"Mask shape: {duration_mask.shape}")
     
     # Apply mask and calculate loss
-    masked_pred = duration_pred.masked_fill(~duration_mask, 0)
-    masked_target = durations.masked_fill(~duration_mask, 0)
+    masked_pred = torch.where(duration_mask, duration_pred, torch.zeros_like(duration_pred))
+    masked_target = torch.where(duration_mask, durations, torch.zeros_like(durations))
     duration_loss = F.mse_loss(masked_pred, masked_target.float())
     
     # Total loss (you can adjust the weights)
